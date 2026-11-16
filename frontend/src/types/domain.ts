@@ -1,9 +1,14 @@
 export interface User{name:string;email:string;role:string}
 export interface Metric{id:number;key:string;name:string;expression:string;unit:string;description:string;owner:string;dependencies:string[]}
 export interface SourceRow{source_key:string;day:string;channel:string;region:string;revenue:number;cost:number;refunds:number;orders:number;reference_net:number}
-export interface Cell{dimensions:Record<string,string>;values:Record<string,number>;reference_net:number;canonical_net:number;difference:number;relative_difference:number|null;source_count:number}
-export interface ReportResult{dimensions:string[];metrics:Metric[];evaluation_order:string[];dependencies:Record<string,string[]>;cells:Cell[];total:Cell;affected_cells:number;attribution:Cell[];source_checksum:string;reconciliation_rule:string}
-export interface ReportRun{id:number;name:string;dimensions:string[];status:string;result:ReportResult;error:string;created_at:string;owner:string;schedule_id:number|null}
+export interface AllocationBasis{source_key:string;region:string;weight:number;revenue:number;orders:number;fallback:boolean;paths:string[]}
+export interface Conservation{revenue_before:number;revenue_after:number;orders_before:number;orders_after:number;conserved:boolean}
+export interface Cell{dimensions:Record<string,string>;values:Record<string,number>;reference_net:number;canonical_net:number;difference:number;relative_difference:number|null;source_count:number;allocation_weight?:number}
+export interface ReportResult{dimensions:string[];metrics:Metric[];evaluation_order:string[];dependencies:Record<string,string[]>;cells:Cell[];total:Cell;affected_cells:number;attribution:Cell[];source_checksum:string;reconciliation_rule:string;attribution_version_id?:number|null;allocation_basis?:AllocationBasis[];allocation_rule?:string;conservation?:Conservation}
+export interface ReportRun{id:number;name:string;dimensions:string[];status:string;result:ReportResult;error:string;created_at:string;owner:string;schedule_id:number|null;attribution_version_id?:number|null}
+export interface AttributionNode{id:number;node:string;kind:string;label:string}
+export interface AttributionEdge{id:number;source:string;target:string;weight:number;start_date:string;end_date:string|null}
+export interface AttributionVersion{id:number;note:string;owner:string;created_at:string;edge_count:number;in_use:boolean}
 export interface Schedule{id:number;name:string;dimensions:string[];interval_minutes:number;next_run_at:string;active:boolean;owner:string}
 export interface Delivery{id:number;schedule_id:number;run_id:number;title:string;created_at:string}
 export interface Audit{id:number;actor:string;action:string;target:string;created_at:string}

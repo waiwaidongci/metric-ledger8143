@@ -10,8 +10,8 @@
 
 | 角色 | 页面与权限 | 典型动作 |
 |---|---|---|
-| admin / 口径负责人 | 六页读写；登记指标、创建/启停计划、计算报表 | 维护统一定义与交付周期 |
-| analyst / 经营分析师 | 六页阅读，创建报表和导出 | 编制渠道/月透视，定位差异 |
+| admin / 口径负责人 | 七页读写；登记指标、维护归属关系、创建/启停计划、计算报表 | 维护统一定义与多层归属分摊 |
+| analyst / 经营分析师 | 七页阅读，创建报表和导出 | 编制渠道/月、区域/月透视，定位差异 |
 | viewer / 渠道阅读者 | 只读、导出 | 打开站内交付并读取快照 |
 
 ## 快速启动
@@ -54,11 +54,15 @@ docker compose exec -T backend python -m scripts.seed_demo
 
 五项种子定义：net_revenue=revenue-refunds；gross_profit=net_revenue-cost；margin_rate=gross_profit/net_revenue；net_per_order=net_revenue/orders；refund_rate=refunds/revenue。比率单位为小数，界面显示4位。
 
+**多层归属分摊**：渠道拆并后经营额不再固定按来源行旧区域统计。`graph_service.py` 维护按生效日期版本化的加权有向图，边仅在 `[start_date,end_date]` 内生效。任一节点每个生效日的流出权重合计必须等于 1（容差 1e-6），同一对节点的有效期不得重叠；对全部区间切换日做三色 DFS，有效期重叠的环路明确拒绝，而日期不重叠的反向关系因永不共存可以登记。区域报表（含 region 维度）先把每条来源的金额与单数按权重逐层流向终点区域，再在分摊后的汇总值上重算指标；同一来源经多条路径到达同一区域时在汇合点合并并保留全部路径，未配置归属的来源回退到来源行旧区域（旧数据兼容，历史报表不变）。分摊前后金额与单数合计必须守恒，否则计算失败；结果附带 `allocation_basis`（来源→区域的权重、金额、单数、路径与取数方式）与守恒校验，可单独导出 CSV。
+
+**同版关系与并发**：报表入队（手工与定时交付同一入口）即在事务咨询锁内冻结当前关系为 `AttributionVersion`（含边快照与终点区域集合），worker 始终加载该冻结版本计算，计算期间再改归属不影响已入队运行，页面展示与导出基于同一快照。所有归属写操作与冻结共用同一把锁并做全量重校验：两个各自合法、合并后成环或破坏权重合计的并发修改，只有先提交的一份生效，后到者 422。中间节点“有入无出”的断头路在版本冻结/计算时硬拦截，登记期允许分步搭建。
+
 **定时交付**：独立worker每轮扫描到期且启用的DeliverySchedule，持久化新的ReportRun并推入Redis队列，完成计算后创建唯一run_id的Delivery。没有手动投递接口，分钟周期可用真实等待验证。计划以UTC存储，界面按浏览器时区显示；周期从实际执行时间向后推，不补发停机期间每次错过的周期。
 
 ## 页面与架构
 
-六页为交付总览、指标口径、来源核对、透视报表、定时交付、校对留痕。核心实体Metric、SourceRow、ReportRun、DeliverySchedule、Delivery分别贯穿SQLAlchemy模型、schema、service、route、前端API、store和页面。`MetricFormula`跨总览与口径页共用；`PivotTable`封装快照透视，`DataTable`、`Notice`、`StatusBadge`跨页共用；hooks分离异步动作与自动刷新。
+七页为交付总览、指标口径、来源核对、透视报表、归属分摊、定时交付、校对留痕。核心实体Metric、SourceRow、AttributionNode、AttributionEdge、AttributionVersion、ReportRun、DeliverySchedule、Delivery分别贯穿SQLAlchemy模型、schema、service、route、前端API、store和页面。`MetricFormula`跨总览与口径页共用；`PivotTable`封装快照透视，`AllocationBasisTable`列出来源到区域的分摊依据，`DataTable`、`Notice`、`StatusBadge`跨页共用；hooks分离异步动作与自动刷新。
 
 | 部分 | 技术 |
 |---|---|
@@ -72,6 +76,8 @@ backend/src/{models,schemas,services,controllers,routes,middlewares,utils,consta
 backend/src/{main.py,worker.py}
 backend/scripts/seed_demo.py
 backend/migrations/001_initial.sql
+backend/migrations/002_attribution.sql
+backend/tests/{test_graph,test_allocation,test_api}.py
 frontend/src/{api,stores,types,components,hooks,pages,router,utils,constants}
 ```
 
@@ -98,9 +104,9 @@ docker compose down -v --remove-orphans
 
 ## 验证与边界
 
-外置测试与截图位于`../../test-artifacts/gb-0005/`，含算法、API、真实周期和浏览器证据。源码不含截图/测试报告/日志，`.env`与日志不提交。
+归属能力由三层自动化测试守护（标准库可直接运行前两套；`test_api.py` 用 FastAPI TestClient + SQLite + 假 Redis，需安装 requirements）：`test_graph.py` 覆盖交错有效期、汇合路径、权重合计、重叠环路拒绝、不重叠反向关系、并发成环只放行一份；`test_allocation.py` 验证先分摊后算指标、跨区守恒、分摊依据合并、旧区域回退与同版快照稳定性；`test_api.py` 覆盖鉴权、登记校验、入队冻结、worker 同版复算、页面/导出一致与并发写串行化，共 97 项断言。外置测试与截图位于`../../test-artifacts/gb-0005/`，含算法、API、真实周期和浏览器证据。源码不含截图/测试报告/日志，`.env`与日志不提交。
 
-目前面向本地合成研究：无文件上传/外部邮件/多租户隔离；仅支持算术口径，不支持任意SQL或函数。单worker调度不提供多实例分布式锁；running任务崩溃需重新提交，数据库事务与Redis入队之间无事务outbox。金额采用浮点并在输出舍入，非财务总账记账引擎。表达式以当前定义计算且结果保存快照；未提供已注册指标编辑/删除，现有数据试算通过后才能登记，后续来源变化仍可能造成任务失败，结果页会显示错误。来源页最多预览100行，计算用全部来源。Google Fonts无网络会回退字体。
+目前面向本地合成研究：无文件上传/外部邮件/多租户隔离；仅支持算术口径，不支持任意SQL或函数。单worker调度不提供多实例分布式锁；running任务崩溃需重新提交，数据库事务与Redis入队之间无事务outbox。金额采用浮点并在输出舍入，非财务总账记账引擎。归属分摊以日为最小生效粒度、按来源渠道作为图起点，不支持同一来源行内部再拆分或跨天权重插值；归属关系只影响含 region 维度的报表，渠道维度与已归档历史报表保持原口径。表达式以当前定义计算且结果保存快照；未提供已注册指标编辑/删除，现有数据试算通过后才能登记，后续来源变化仍可能造成任务失败，结果页会显示错误。来源页最多预览100行，计算用全部来源。Google Fonts无网络会回退字体。
 
 ## License
 

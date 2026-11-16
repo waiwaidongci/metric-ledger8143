@@ -5,7 +5,7 @@ from ..config.database import get_db
 from ..controllers.dependencies import current_user,roles
 from ..constants.roles import Role
 from ..schemas.report import ReportInput
-from ..services.report_service import list_runs,get_run,create_run,export_run
+from ..services.report_service import list_runs,get_run,create_run,export_run,export_basis
 from ..utils.serialize import record
 router=APIRouter(prefix="/reports",tags=["reports"])
 @router.get("")
@@ -16,3 +16,5 @@ def show(rid:int,db:Session=Depends(get_db),user=Depends(current_user)):return r
 def create(data:ReportInput,db:Session=Depends(get_db),user=Depends(roles(Role.ADMIN,Role.ANALYST))):return create_run(db,data,user)
 @router.get("/{rid}/export")
 def export(rid:int,db:Session=Depends(get_db),user=Depends(current_user)):return Response(content='﻿'+export_run(db,rid),media_type="text/csv",headers={"Content-Disposition":f'attachment; filename="metric-report-{rid}.csv"'})
+@router.get("/{rid}/basis-export")
+def basis_export(rid:int,db:Session=Depends(get_db),user=Depends(current_user)):return Response(content='﻿'+export_basis(db,rid),media_type="text/csv",headers={"Content-Disposition":f'attachment; filename="allocation-basis-{rid}.csv"'})

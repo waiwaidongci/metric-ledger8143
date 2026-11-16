@@ -13,3 +13,4 @@ class ReportRun(Base):
     created_at: Mapped[str]=mapped_column(default=now)
     owner: Mapped[str]
     schedule_id: Mapped[int|None]=mapped_column(ForeignKey("delivery_schedules.id"),nullable=True)
+    attribution_version_id: Mapped[int|None]=mapped_column(ForeignKey("attribution_versions.id"),nullable=True)
